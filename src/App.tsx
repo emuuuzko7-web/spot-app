@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { distanceMeters, distanceToWalkMinutes } from "./geo";
 import { knownStudySpots } from "./knownSpots";
+import { scoreSpot } from "./ranking";
 import type { Spot } from "./types";
+import { SpotMap } from "./SpotMap";
+import "leaflet/dist/leaflet.css";
 
 type LocationState =
   | { status: "idle" }
@@ -9,11 +12,62 @@ type LocationState =
   | { status: "success"; lat: number; lng: number; accuracy?: number; source: "gps" | "manual" }
   | { status: "error"; message: string };
 
+const medals = ["🥇", "🥈", "🥉"];
+
+function WifiBadge({ has }: { has: boolean }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: 999,
+        backgroundColor: has ? "#E1F5EE" : "#F1EFE8",
+        color: has ? "#085041" : "#5F5E5A",
+        fontSize: 12,
+        marginRight: 6,
+      }}
+    >
+      📶 {has ? "Wi-Fiあり" : "不明"}
+    </span>
+  );
+}
+
+function PowerBadge({ has }: { has: boolean }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: 999,
+        backgroundColor: has ? "#FAEEDA" : "#F1EFE8",
+        color: has ? "#633806" : "#5F5E5A",
+        fontSize: 12,
+      }}
+    >
+      🔌 {has ? "電源あり" : "不明"}
+    </span>
+  );
+}
+
+function toCategory(amenity: string): Spot["category"] {
+  if (amenity === "cafe") return "cafe";
+  if (amenity === "library") return "library";
+  if (amenity === "restaurant" || amenity === "fast_food") return "restaurant";
+  if (amenity === "bar" || amenity === "pub" || amenity === "izakaya") return "bar";
+  return "other";
+}
+
 function App() {
   const [selectedPurpose, setSelectedPurpose] = useState<string | null>(null);
   const [remainingMinutes, setRemainingMinutes] = useState(60);
   const [needsWifi, setNeedsWifi] = useState(false);
   const [needsPower, setNeedsPower] = useState(false);
+  const [genre, setGenre] = useState<"any" | "cafe" | "restaurant">("any");
+  const [headcount, setHeadcount] = useState(2);
   const [location, setLocation] = useState<LocationState>({ status: "idle" });
   const [manualAddress, setManualAddress] = useState("");
   const [spots, setSpots] = useState<Spot[]>([]);
@@ -27,14 +81,30 @@ function App() {
     { key: "kill_time", label: "🕐 時間をつぶしたい" },
   ];
 
-  const filteredSpots = spots.filter((spot) => {
-    if (needsWifi && !spot.hasWifi) return false;
-    if (needsPower && !spot.hasPower) return false;
-    if (spot.walkMinutes > remainingMinutes) return false;
-    return true;
-  });
+  const isStudyMode = selectedPurpose === "study" || selectedPurpose === "work";
 
-  // GPS(ブラウザ標準)で現在地を取得する
+  const filteredSpots = useMemo(() => {
+    return spots.filter((spot) => {
+      if (spot.walkMinutes > remainingMinutes) return false;
+
+      if (isStudyMode) {
+        if (needsWifi && !spot.hasWifi) return false;
+        if (needsPower && !spot.hasPower) return false;
+      } else {
+        if (genre !== "any" && spot.category !== genre) return false;
+      }
+
+      return true;
+    });
+  }, [spots, needsWifi, needsPower, remainingMinutes, isStudyMode, genre]);
+
+  // 点数順に並び替えたスポット一覧。先頭3件が「おすすめトップ3」になる
+  const rankedSpots = useMemo(() => {
+    return [...filteredSpots].sort(
+      (a, b) => scoreSpot(b, remainingMinutes, isStudyMode) - scoreSpot(a, remainingMinutes, isStudyMode)
+    );
+  }, [filteredSpots, remainingMinutes, isStudyMode]);
+
   function handleGetLocation() {
     setLocation({ status: "loading" });
 
@@ -59,7 +129,6 @@ function App() {
     );
   }
 
-  // 住所や地名を手入力して、Nominatim(無料のジオコーディングAPI)で座標に変換する
   async function handleManualLocation() {
     if (!manualAddress) return;
     setLocation({ status: "loading" });
@@ -87,8 +156,6 @@ function App() {
     }
   }
 
-  // OpenStreetMap(Overpass API)から現在地周辺のカフェ・図書館を取得し、
-  // 大分市の確定スポット情報と合体させる
   async function handleSearchSpots() {
     if (location.status !== "success") return;
     setIsSearching(true);
@@ -96,11 +163,15 @@ function App() {
     const { lat, lng } = location;
     const radius = 1500;
 
+    const amenities = isStudyMode ? ["cafe", "library"] : ["cafe", "restaurant", "bar"];
+    const amenityQuery = amenities
+      .map((a) => `node["amenity"="${a}"](around:${radius},${lat},${lng});`)
+      .join("\n");
+
     const query = `
       [out:json][timeout:25];
       (
-        node["amenity"="cafe"](around:${radius},${lat},${lng});
-        node["amenity"="library"](around:${radius},${lat},${lng});
+        ${amenityQuery}
       );
       out body;
     `;
@@ -122,26 +193,27 @@ function App() {
           return {
             id: el.id,
             name,
+            lat: el.lat,
+            lng: el.lon,
             walkMinutes: distanceToWalkMinutes(dist),
             hasWifi: el.tags.internet_access === "wlan" || el.tags.internet_access === "yes",
             hasPower: false,
+            category: toCategory(el.tags.amenity),
             note: isUniversityFacility ? "学外利用制限の可能性あり(要確認)" : undefined,
           };
         });
 
-      // 確定スポットも、現在地からの実際の徒歩時間を計算し直す
       const knownWithDistance: Spot[] = knownStudySpots.map((spot) => {
         const dist = distanceMeters(lat, lng, spot.lat, spot.lng);
         return { ...spot, walkMinutes: distanceToWalkMinutes(dist) };
       });
 
-      // 修正後：完全一致ではなく、名前が互いに一部でも含まれていたら「同じ施設」とみなす
-    const dedupedOsmResults = converted.filter((osmSpot) => {
-      const isDuplicate = knownWithDistance.some(
-        (known) => known.name.includes(osmSpot.name) || osmSpot.name.includes(known.name)
-      );
-      return !isDuplicate;
-    });
+      const dedupedOsmResults = converted.filter((osmSpot) => {
+        const isDuplicate = knownWithDistance.some(
+          (known) => known.name.includes(osmSpot.name) || osmSpot.name.includes(known.name)
+        );
+        return !isDuplicate;
+      });
 
       setSpots([...knownWithDistance, ...dedupedOsmResults]);
     } catch (e) {
@@ -207,43 +279,109 @@ function App() {
             />
           </label>
 
-          <div>
-            <label>
-              <input
-                type="checkbox"
-                checked={needsWifi}
-                onChange={(e) => setNeedsWifi(e.target.checked)}
-              />
-              Wi-Fi必須
-            </label>
+          {isStudyMode ? (
+            <div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={needsWifi}
+                  onChange={(e) => setNeedsWifi(e.target.checked)}
+                />
+                Wi-Fi必須
+              </label>
 
-            <label>
-              <input
-                type="checkbox"
-                checked={needsPower}
-                onChange={(e) => setNeedsPower(e.target.checked)}
-              />
-              コンセント必須
-            </label>
-          </div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={needsPower}
+                  onChange={(e) => setNeedsPower(e.target.checked)}
+                />
+                コンセント必須
+              </label>
+            </div>
+          ) : (
+            <div>
+              <label>
+                人数:
+                <input
+                  type="number"
+                  value={headcount}
+                  min={1}
+                  onChange={(e) => setHeadcount(Number(e.target.value))}
+                />
+                人
+              </label>
+
+              <div>
+                <label>
+                  <input
+                    type="radio"
+                    name="genre"
+                    checked={genre === "any"}
+                    onChange={() => setGenre("any")}
+                  />
+                  なんでも
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="genre"
+                    checked={genre === "cafe"}
+                    onChange={() => setGenre("cafe")}
+                  />
+                  カフェ
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="genre"
+                    checked={genre === "restaurant"}
+                    onChange={() => setGenre("restaurant")}
+                  />
+                  居酒屋・レストラン
+                </label>
+              </div>
+            </div>
+          )}
 
           <button onClick={handleSearchSpots} disabled={location.status !== "success" || isSearching}>
             {isSearching ? "検索中..." : "この条件で探す"}
           </button>
 
-          <h2>候補: {filteredSpots.length}件</h2>
+          <h2>候補: {rankedSpots.length}件</h2>
           <ul>
-            {filteredSpots.map((spot) => (
-              <li key={spot.id}>
-                {spot.name}(徒歩{spot.walkMinutes}分 / Wi-Fi:
-                {spot.hasWifi ? "○" : "不明"} / 電源:
-                {spot.hasPower ? "○" : "不明"})
+            {rankedSpots.map((spot, index) => (
+              <li key={spot.id} style={{ marginBottom: 8 }}>
+                <div>
+                  {index < 3 && <strong>{medals[index]} </strong>}
+                  {spot.name}(徒歩{spot.walkMinutes}分)
+                  <a
+                    href={`https://www.tiktok.com/search?q=${encodeURIComponent(spot.name)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ marginLeft: 8, fontSize: 12 }}
+                  >
+                    🎵 TikTokで検索
+                  </a>
+                </div>
+                {isStudyMode && (
+                  <>
+                    <WifiBadge has={spot.hasWifi} />
+                    <PowerBadge has={spot.hasPower} />
+                  </>
+                )}
                 {spot.note && (
-                  <span style={{ color: "#B8623D", marginLeft: "8px" }}>⚠️ {spot.note}</span>
+                  <span style={{ color: "#B8623D", marginLeft: 6, fontSize: 12 }}>
+                    ⚠️ {spot.note}
+                  </span>
                 )}
               </li>
             ))}
           </ul>
+
+          {location.status === "success" && (
+            <SpotMap center={{ lat: location.lat, lng: location.lng }} spots={rankedSpots} />
+          )}
         </div>
       )}
     </div>
