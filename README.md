@@ -1,32 +1,91 @@
-# React + TypeScript + Vite
+# 今、どうする？ - Study & Hangout Spot Finder
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+現在地・目的・残り時間から、今の自分に合う場所を提案するWebアプリ。
 
-Currently, two official plugins are available:
+React + TypeScriptを学びながら開発しました。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🎯 開発の背景
 
-## React Compiler
+友達と遊んでいるときの「このあとどこ行く？」、バイト前に「Wi-Fiと電源がある場所で勉強したい」——そんな場面で、条件を1つずつGoogleマップで調べるのが面倒だと感じたのがきっかけです。
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+「どの店を探しますか？」ではなく、「**今、何したい？**」から始まる、目的ベースの検索を目指しました。
 
-## Expanding the Oxlint configuration
+## 👤 想定ユーザー
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+大分市内で暮らす大学生。特に、空き時間に勉強場所を探したい人、友達と次の予定を決めたい人。
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
+## ✨ 主な機能
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- **目的選択**：勉強・作業・休憩・友達と過ごす・時間つぶしの5つから選択(自動で「勉強モード」「遊びモード」に振り分け)
+- **現在地取得**：GPS、または住所・地名のオートコンプリート入力
+- **条件検索**：残り時間、Wi-Fi/電源の有無(勉強モード)、人数・ジャンル(遊びモード)
+- **おすすめトップ3**：条件充足度と距離からスコアリングし、上位3件を強調表示
+- **地図表示**：現在地とおすすめスポットを地図上に表示(件数が多い場合はクラスターでまとめる)
+- **穴場スポットの投稿・共有**：オープンデータだけではわからない情報を、ユーザー同士で投稿・共有できる
+- **TikTok検索リンク**：気になるスポットをその場でTikTok検索できる
+
+## 🛠 技術構成
+
+- **フロントエンド**: React + TypeScript + Vite
+- **地図**: Leaflet + OpenStreetMap
+- **データベース**: Supabase(ユーザー投稿スポットの保存)
+- **外部API**: Overpass API(施設検索)、Nominatim(住所・地名検索、逆ジオコーディング)
+
+**Google Maps API等ではなく、あえて全て無料・カード登録不要なオープンソース系のAPIで構成しています。**
+
+## 💡 工夫した点
+
+### 1. オープンデータの限界を、確実な情報で補う設計
+
+OpenStreetMapには「Wi-Fi・電源の有無」という情報がほとんど登録されていません。そこで、以下の3層構造にしました。
+
+1. **確定情報**：大分市が公式に公開している学習スペース情報(ホルトホール大分等)を手動でデータ化
+2. **推定情報**：OpenStreetMap上のタグ(`internet_access`等)から分かる範囲の情報
+3. **不明**：情報が無い場合は「不明」と正直に表示し、「あり」と偽らない
+
+### 2. 誤検索への段階的な対策
+
+「大分大学」で検索すると無関係な地域がヒットする、「オーパ」で大阪がヒットする、といった地名検索の精度問題に対し、以下を組み合わせて対応しました。
+
+- 施設名検索(Overpass、県内限定)と住所検索(Nominatim)を両方実行し、候補を統合
+- 1件に自動で絞り込まず、**複数候補から人が選ぶ**UIに変更(誤爆の防止)
+- 主要施設は`knownPlaces`として個別に確実な座標を登録
+
+### 3. 課金を避ける設計判断
+
+当初Google Places APIの利用を検討しましたが、クレジットカード登録が必要な点がネックになりました。そこで、**無料・カード登録不要なOpenStreetMap系のAPI(Overpass、Nominatim)に切り替え**、データベースも同様の理由でSupabase(無料枠でカード登録不要)を採用しました。
+
+### 4. 不確実性を隠さないUI
+
+「Wi-Fiあり」「不明」のように、確証のない情報を「無し」と決めつけず、正直に表示する設計にしています。大学施設には「学外利用制限の可能性あり(要確認)」という注意書きを表示し、最終確認はユーザー自身に委ねる設計にしました。
+
+## 😅 苦労した点
+
+- **日本の住所データの粗さ**：OpenStreetMapは有志が作る地図データのため、日本の「丁目・番地」レベルの住所情報が地域によってかなりムラがあり、正確な住所を入力しても見つからないことが度々ありました。段階的な簡略化検索や、施設名検索との併用で対応しました。
+- **PCでの位置情報の精度**：PCはGPSを持たないため、Wi-Fi測位に頼ることになり、実際の位置と大きくズレることがありました。この制約を受け入れた上で、住所入力による代替手段を用意しました。
+- **重複データの統合**：同じ場所が複数のデータソース(OpenStreetMap・大分市公式データ・ユーザー投稿)から重複して出てくる問題に対し、名前の部分一致や座標の近さで判定する重複除去処理を実装しました。
+
+## 🚀 今後追加したい機能
+
+- スマートフォンでの実機テスト・HTTPS環境へのデプロイ
+- ユーザー投稿スポットの座標を、地図クリックで直接指定できるようにする
+- 人数条件を考慮したおすすめ度の反映(現状は表示のみ)
+- 投稿の信頼性を高める仕組み(いいね機能、荒らし投稿対策など)
+
+## 🖥 セットアップ
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+
+Supabase連携には `.env.local` に以下の設定が必要です(詳細は開発メモ参照)。
+
+\`\`\`
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+\`\`\`
+
+## 📸 スクリーンショット
+
+(ここに実際のアプリのスクリーンショットを貼る)
