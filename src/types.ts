@@ -8,4 +8,5 @@ export type Spot = {
   hasPower: boolean;
   category: "cafe" | "library" | "restaurant" | "bar" | "other";
   note?: string;
+  isUserSubmitted?: boolean;
 };

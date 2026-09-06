@@ -457,3 +457,92 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* ===== みんなの投稿 ===== */
+
+:root {
+  --community: #9c7bd9;
+}
+
+.badge--community {
+  background: color-mix(in srgb, var(--community) 22%, transparent);
+  color: var(--community);
+}
+
+.user-note {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.add-spot-panel {
+  margin-bottom: 20px;
+}
+
+.add-spot-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.add-spot-form input[type="text"],
+.add-spot-form textarea {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.add-spot-form textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.candidate-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.candidate-btn {
+  width: 100%;
+  text-align: left;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.candidate-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+  .address-autocomplete {
+  position: relative;
+}
+.address-autocomplete .candidate-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  margin-top: 4px;
+}
