@@ -87,11 +87,11 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 \`\`\`
 
 ## 📸 スクリーンショット
-ホーム
+##ホーム
 <img width="497" height="419" alt="スクリーンショット 2026-09-29 233342" src="https://github.com/user-attachments/assets/ada0a0e3-4d18-4625-8cae-5a307bc88e46" />
-検索
+##検索
 <img width="479" height="497" alt="スクリーンショット 2026-09-29 233434" src="https://github.com/user-attachments/assets/a10dd314-07f9-42b9-ad22-2728f1bdf7d6" />
-検索結果
+##検索結果
 <img width="479" height="472" alt="image" src="https://github.com/user-attachments/assets/6e80fcce-ba58-41b6-ac9a-2d466bed3d83" />
 
 
