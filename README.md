@@ -87,5 +87,6 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 \`\`\`
 
 ## 📸 スクリーンショット
+<img width="479" height="472" alt="image" src="https://github.com/user-attachments/assets/6e80fcce-ba58-41b6-ac9a-2d466bed3d83" />
 
 (ここに実際のアプリのスクリーンショットを貼る)
