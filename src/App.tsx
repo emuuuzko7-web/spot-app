@@ -6,11 +6,14 @@ import { scoreSpot } from "./ranking";
 import { reverseGeocode } from "./geocode";
 import { searchAddressCandidates, type AddressCandidate } from "./adressSearch";
 import { useDebounce } from "./useDebounce";
-import { fetchUserSpots, addUserSpot, findSimilarUserSpot, appendNoteToUserSpot } from "./userSpots";
-import type { Spot } from "./types";
+import { fetchUserSpots, addUserSpot, findSimilarUserSpot, mergeUserSpotSubmission } from "./userSpots";
+import type { Spot, PowerLevel } from "./types";
+import { POWER_LEVEL_LABELS } from "./types";
 import { SpotMap } from "./SpotMap";
 import "leaflet/dist/leaflet.css";
 import "./App.css";
+import { PickLocationMap } from "./PickLocationMap";
+
 
 type LocationState =
   | { status: "idle" }
@@ -28,10 +31,14 @@ function WifiBadge({ has }: { has: boolean }) {
   );
 }
 
-function PowerBadge({ has }: { has: boolean }) {
+function PowerBadge({ spot }: { spot: Spot }) {
+  // ユーザー投稿で段階情報があればそれを、無ければ従来のあり/不明表示
+  if (spot.powerLevel && spot.powerLevel !== "unknown") {
+    return <span className="badge badge--power-level">🔌 {POWER_LEVEL_LABELS[spot.powerLevel]}</span>;
+  }
   return (
-    <span className={`badge ${has ? "badge--power-on" : "badge--power-off"}`}>
-      🔌 {has ? "電源あり" : "不明"}
+    <span className={`badge ${spot.hasPower ? "badge--power-on" : "badge--power-off"}`}>
+      🔌 {spot.hasPower ? "電源あり" : "不明"}
     </span>
   );
 }
@@ -59,7 +66,7 @@ function SpotRow({ spot, rank, isStudyMode }: { spot: Spot; rank?: number; isStu
             {isStudyMode && (
               <>
                 <WifiBadge has={spot.hasWifi} />
-                <PowerBadge has={spot.hasPower} />
+                <PowerBadge spot={spot} />
               </>
             )}
             {spot.isUserSubmitted && <span className="badge badge--community">🏴 みんなの投稿</span>}
@@ -72,6 +79,13 @@ function SpotRow({ spot, rank, isStudyMode }: { spot: Spot; rank?: number; isStu
           ) : (
             <span className="note-flag">⚠️ {spot.note}</span>
           ))}
+                {spot.crowdingNote && <span className="crowding-note">🕐 {spot.crowdingNote}</span>}
+
+        {spot.isUserSubmitted && spot.createdAt && (
+          <span className="info-date">
+            {new Date(spot.createdAt).toLocaleDateString("ja-JP", { year: "numeric", month: "long" })}時点の情報
+          </span>
+        )}
       </div>
     </li>
   );
@@ -83,6 +97,14 @@ function toCategory(amenity: string): Spot["category"] {
   if (amenity === "restaurant" || amenity === "fast_food") return "restaurant";
   if (amenity === "bar" || amenity === "pub" || amenity === "izakaya") return "bar";
   return "other";
+}
+
+// 「居酒屋・レストラン」を選んだ場合、bar(居酒屋・パブ)カテゴリも含めて判定する。
+// OSM上では居酒屋がrestaurantではなくbarタグで登録されていることが多いため。
+function matchesGenre(category: Spot["category"], genre: "any" | "cafe" | "restaurant"): boolean {
+  if (genre === "any") return true;
+  if (genre === "restaurant") return category === "restaurant" || category === "bar";
+  return category === genre;
 }
 
 function App() {
@@ -109,10 +131,12 @@ function App() {
   const [newSpotSelected, setNewSpotSelected] = useState<AddressCandidate | null>(null);
   const [newSpotCategory, setNewSpotCategory] = useState<Spot["category"]>("cafe");
   const [newSpotWifi, setNewSpotWifi] = useState(false);
-  const [newSpotPower, setNewSpotPower] = useState(false);
+  const [newSpotPowerLevel, setNewSpotPowerLevel] = useState<PowerLevel>("unknown");
+  const [newSpotCrowding, setNewSpotCrowding] = useState("");
   const [newSpotNote, setNewSpotNote] = useState("");
   const [isSubmittingSpot, setIsSubmittingSpot] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [newSpotInputMode, setNewSpotInputMode] = useState<"address" | "map">("address");
 
   const purposes = [
     { key: "study", label: "📚 勉強したい" },
@@ -132,7 +156,7 @@ function App() {
         if (needsWifi && !spot.hasWifi) return false;
         if (needsPower && !spot.hasPower) return false;
       } else {
-        if (genre !== "any" && spot.category !== genre) return false;
+        if (!matchesGenre(spot.category, genre)) return false;
       }
 
       return true;
@@ -166,12 +190,16 @@ function App() {
     let cancelled = false;
     setIsLoadingCandidates(true);
 
-    searchAddressCandidates(debouncedManualAddress).then((results) => {
-      if (!cancelled) {
-        setLocationCandidates(results);
-        setIsLoadingCandidates(false);
-      }
-    });
+    searchAddressCandidates(debouncedManualAddress)
+      .then((results) => {
+        if (!cancelled) setLocationCandidates(results);
+      })
+      .catch(() => {
+        if (!cancelled) setLocationCandidates([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingCandidates(false);
+      });
 
     return () => {
       cancelled = true;
@@ -182,7 +210,7 @@ function App() {
   const debouncedNewSpotAddress = useDebounce(newSpotAddress, 400);
 
   useEffect(() => {
-    if (newSpotSelected) return; // 既に選択済みなら再検索しない
+    if (newSpotSelected) return;
     if (debouncedNewSpotAddress.trim().length < 2) {
       setNewSpotCandidates([]);
       return;
@@ -191,12 +219,16 @@ function App() {
     let cancelled = false;
     setIsLoadingSpotCandidates(true);
 
-    searchAddressCandidates(debouncedNewSpotAddress).then((results) => {
-      if (!cancelled) {
-        setNewSpotCandidates(results);
-        setIsLoadingSpotCandidates(false);
-      }
-    });
+    searchAddressCandidates(debouncedNewSpotAddress)
+      .then((results) => {
+        if (!cancelled) setNewSpotCandidates(results);
+      })
+      .catch(() => {
+        if (!cancelled) setNewSpotCandidates([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingSpotCandidates(false);
+      });
 
     return () => {
       cancelled = true;
@@ -254,6 +286,15 @@ function App() {
     setNewSpotSelected(candidate);
     setNewSpotAddress(candidate.label);
     setNewSpotCandidates([]);
+  }
+
+  async function handleMapPinSelect(lat: number, lng: number) {
+    setNewSpotSelected({ label: `緯度${lat.toFixed(4)} / 経度${lng.toFixed(4)}`, lat, lng });
+
+    const label = await reverseGeocode(lat, lng);
+    if (label) {
+      setNewSpotSelected((prev) => (prev && prev.lat === lat && prev.lng === lng ? { ...prev, label } : prev));
+    }
   }
 
   async function handleSearchSpots() {
@@ -314,7 +355,8 @@ function App() {
         return { ...spot, walkMinutes: distanceToWalkMinutes(dist) };
       });
 
-      const curated = [...knownWithDistance, ...userSpotsWithDistance];
+      // 大分市公式の学習スペースデータ(図書館等)は勉強モードのときだけ候補に含める
+      const curated = isStudyMode ? [...knownWithDistance, ...userSpotsWithDistance] : [...userSpotsWithDistance];
 
       const dedupedOsmResults = converted.filter((osmSpot) => {
         const isDuplicate = curated.some(
@@ -340,40 +382,51 @@ function App() {
       const { lat, lng } = newSpotSelected;
       const similar = await findSimilarUserSpot(newSpotName, lat, lng);
 
-      if (similar) {
-        if (newSpotNote) {
-          const appendResult = await appendNoteToUserSpot(similar.id, newSpotNote, similar.note);
-          setSubmitMessage(
-            appendResult.success
-              ? "既に投稿されている場所だったため、コメントを追記しました！"
-              : `追記に失敗しました: ${appendResult.error}`
-          );
-        } else {
-          setSubmitMessage("既に投稿されている場所です(新しいコメントがなかったため、追加の変更はありません)。");
-        }
+                if (similar) {
+        const mergeResult = await mergeUserSpotSubmission(
+          similar.id,
+          { name: similar.name, note: similar.note, crowdingNote: similar.crowdingNote },
+          {
+            name: newSpotName,
+            note: newSpotNote || undefined,
+            hasWifi: newSpotWifi,
+            powerLevel: newSpotPowerLevel,
+            crowdingNote: newSpotCrowding || undefined,
+          }
+        );
+        setSubmitMessage(
+          mergeResult.success
+            ? "既に投稿されている場所だったため、情報を更新しました！"
+            : `更新に失敗しました: ${mergeResult.error}`
+        );
       } else {
-        const insertResult = await addUserSpot({
-          name: newSpotName,
-          lat,
-          lng,
-          category: newSpotCategory,
-          hasWifi: newSpotWifi,
-          hasPower: newSpotPower,
-          note: newSpotNote || undefined,
-        });
+                const insertResult = await addUserSpot({
+                  name: newSpotName,
+                  lat,
+                  lng,
+                  category: newSpotCategory,
+                  hasWifi: newSpotWifi,
+                  powerLevel: newSpotPowerLevel,
+                  note: newSpotNote || undefined,
+                  crowdingNote: newSpotCrowding || undefined,
+                });
 
         if (!insertResult.success) {
           setSubmitMessage(`投稿に失敗しました: ${insertResult.error}`);
           return;
         }
-        setSubmitMessage("投稿しました！次の検索から反映されます。");
+        setSubmitMessage("投稿しました！検索結果に反映しました。");
+        if (location.status === "success") {
+          handleSearchSpots();
+        }
       }
 
       setNewSpotName("");
       setNewSpotAddress("");
       setNewSpotNote("");
       setNewSpotWifi(false);
-      setNewSpotPower(false);
+      setNewSpotPowerLevel("unknown");
+      setNewSpotCrowding("");
       setNewSpotSelected(null);
     } catch (e) {
       setSubmitMessage("エラーが発生しました");
@@ -450,31 +503,56 @@ function App() {
               onChange={(e) => setNewSpotName(e.target.value)}
             />
 
-            <div className="address-autocomplete">
-              <input
-                type="text"
-                placeholder="住所や地名"
-                value={newSpotAddress}
-                onChange={(e) => {
-                  setNewSpotAddress(e.target.value);
-                  setNewSpotSelected(null);
-                }}
-              />
-
-              {isLoadingSpotCandidates && <p className="location-status">検索中...</p>}
-
-              {newSpotCandidates.length > 0 && (
-                <ul className="candidate-list">
-                  {newSpotCandidates.map((c, i) => (
-                    <li key={i}>
-                      <button type="button" className="candidate-btn" onClick={() => handleSelectSpotCandidate(c)}>
-                        {c.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                        <div className="mode-toggle-row">
+              <button
+                type="button"
+                className={`mode-toggle-btn ${newSpotInputMode === "address" ? "active" : ""}`}
+                onClick={() => setNewSpotInputMode("address")}
+              >
+                住所で入力
+              </button>
+              <button
+                type="button"
+                className={`mode-toggle-btn ${newSpotInputMode === "map" ? "active" : ""}`}
+                onClick={() => setNewSpotInputMode("map")}
+              >
+                📍 地図でさす
+              </button>
             </div>
+
+            {newSpotInputMode === "address" ? (
+              <div className="address-autocomplete">
+                <input
+                  type="text"
+                  placeholder="住所や地名"
+                  value={newSpotAddress}
+                  onChange={(e) => {
+                    setNewSpotAddress(e.target.value);
+                    setNewSpotSelected(null);
+                  }}
+                />
+
+                {isLoadingSpotCandidates && <p className="location-status">検索中...</p>}
+
+                {newSpotCandidates.length > 0 && (
+                  <ul className="candidate-list">
+                    {newSpotCandidates.map((c, i) => (
+                      <li key={i}>
+                        <button type="button" className="candidate-btn" onClick={() => handleSelectSpotCandidate(c)}>
+                          {c.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <PickLocationMap
+                initialLat={location.status === "success" ? location.lat : 33.2382}
+                initialLng={location.status === "success" ? location.lng : 131.6126}
+                onSelect={handleMapPinSelect}
+              />
+            )}
 
             {newSpotSelected && <p className="location-status">✅ 選択した場所: {newSpotSelected.label}</p>}
 
@@ -517,7 +595,7 @@ function App() {
               </label>
             </div>
 
-            <div className="condition-row">
+                        <div className="condition-row">
               <label className="pill">
                 <input
                   type="checkbox"
@@ -526,15 +604,29 @@ function App() {
                 />
                 Wi-Fiあり
               </label>
-              <label className="pill">
-                <input
-                  type="checkbox"
-                  checked={newSpotPower}
-                  onChange={(e) => setNewSpotPower(e.target.checked)}
-                />
-                電源あり
-              </label>
             </div>
+
+            <p className="field-label">電源の多さ</p>
+            <div className="condition-row">
+              {(["unknown", "none", "few", "some", "most"] as PowerLevel[]).map((level) => (
+                <label className="pill" key={level}>
+                  <input
+                    type="radio"
+                    name="power-level"
+                    checked={newSpotPowerLevel === level}
+                    onChange={() => setNewSpotPowerLevel(level)}
+                  />
+                  {POWER_LEVEL_LABELS[level]}
+                </label>
+              ))}
+            </div>
+
+            <input
+              type="text"
+              placeholder="混雑しやすい時間帯(任意): 例 土日の昼は満席"
+              value={newSpotCrowding}
+              onChange={(e) => setNewSpotCrowding(e.target.value)}
+            />
 
             <textarea
               placeholder="コメント(任意): どんな場所か、おすすめポイントなど"

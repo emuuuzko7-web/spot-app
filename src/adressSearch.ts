@@ -49,17 +49,21 @@ function simplifyAddress(address: string): string {
 }
 
 async function searchByAddress(q: string): Promise<AddressCandidate[]> {
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&countrycodes=jp&limit=8&q=${encodeURIComponent(q)}`,
-    { headers: { "Accept-Language": "ja" } }
-  );
-  const data = await res.json();
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&countrycodes=jp&limit=8&q=${encodeURIComponent(q)}`,
+      { headers: { "Accept-Language": "ja" } }
+    );
+    const data = await res.json();
 
-  return (data as any[]).map((item) => ({
-    label: item.display_name,
-    lat: parseFloat(item.lat),
-    lng: parseFloat(item.lon),
-  }));
+    return (data as any[]).map((item) => ({
+      label: item.display_name,
+      lat: parseFloat(item.lat),
+      lng: parseFloat(item.lon),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // 座標が近い、または表示名が完全一致する候補は重複とみなして1つにまとめる
