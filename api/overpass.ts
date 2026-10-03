@@ -1,3 +1,7 @@
+// Edge Runtimeで実行する(通常のサーバー関数とは異なるネットワーク経路を使うため、
+// Overpass側のIPブロックを回避できる可能性がある)
+export const config = { runtime: "edge" };
+
 const OVERPASS_ENDPOINTS = [
   "https://overpass.kumi.systems/api/interpreter",
   "https://overpass-api.de/api/interpreter",
@@ -29,24 +33,26 @@ async function fetchOne(endpoint: string, query: string): Promise<any> {
   }
 }
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: Request): Promise<Response> {
   if (req.method !== "POST") {
-    res.status(405).json({ error: "Method not allowed" });
-    return;
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405 });
   }
 
-  const query = req.body?.query;
+  const body = await req.json().catch(() => null);
+  const query = body?.query;
   if (!query) {
-    res.status(400).json({ error: "query is required" });
-    return;
+    return new Response(JSON.stringify({ error: "query is required" }), { status: 400 });
   }
 
   try {
-    // 3つのサーバーに同時に問い合わせ、一番早く成功したものを採用する。
-    // 順番に試すとVercelの関数実行時間(10秒程度)を超えてしまうため、並行処理にしている。
     const data = await Promise.any(OVERPASS_ENDPOINTS.map((endpoint) => fetchOne(endpoint, query)));
-    res.status(200).json(data);
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (e) {
-    res.status(502).json({ error: "すべてのOverpassサーバーへの接続に失敗しました" });
+    return new Response(JSON.stringify({ error: "すべてのOverpassサーバーへの接続に失敗しました" }), {
+      status: 502,
+    });
   }
 }
