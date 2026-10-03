@@ -48,7 +48,8 @@ async function queryOverpassViaProxy(query: string): Promise<any> {
   });
 
   if (!res.ok) {
-    throw new Error(`プロキシ経由の検索に失敗しました(${res.status})`);
+    const body = await res.json().catch(() => null);
+    throw new Error(`プロキシ経由の検索に失敗しました(${res.status}): ${body?.error ?? "詳細不明"}`);
   }
   return res.json();
 }
