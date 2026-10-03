@@ -16,11 +16,8 @@ async function fetchWithTimeout(url: string, options: RequestInit): Promise<Resp
   }
 }
 
-// Overpass APIの公開サーバーは無料ゆえに、混雑時にCORSエラーや406、
-// またはタイムアウトで応答しないことがある。複数のミラーサーバーを
-// 順番に試し、1つあたり15秒で諦めて次を試すことで、
-// 「検索中…」のまま固まって見える状態を避ける。
-export async function queryOverpass(query: string): Promise<any> {
+// 開発環境(npm run dev)では、これまで通りブラウザから直接Overpassに問い合わせる
+async function queryOverpassDirect(query: string): Promise<any> {
   let lastError: unknown = null;
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
@@ -37,4 +34,28 @@ export async function queryOverpass(query: string): Promise<any> {
   }
 
   throw lastError ?? new Error("すべてのOverpassサーバーへの接続に失敗しました");
+}
+
+// 本番環境(Vercel)では、クラウドのIPからの直接アクセスがOverpass側に
+// CORSエラーとして拒否されることがあるため、自前のサーバー(api/overpass.ts)を
+// 経由して問い合わせる。ブラウザからは常に同じドメインへの通信になるため、
+// CORSの制約自体が発生しなくなる。
+async function queryOverpassViaProxy(query: string): Promise<any> {
+  const res = await fetchWithTimeout("/api/overpass", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`プロキシ経由の検索に失敗しました(${res.status})`);
+  }
+  return res.json();
+}
+
+export async function queryOverpass(query: string): Promise<any> {
+  if (import.meta.env.DEV) {
+    return queryOverpassDirect(query);
+  }
+  return queryOverpassViaProxy(query);
 }
