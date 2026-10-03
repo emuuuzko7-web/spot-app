@@ -11,11 +11,15 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    // "data=" を付けた形式(application/x-www-form-urlencoded)で送ると、
-    // Overpass API公式のドキュメントで案内されている標準的な呼び出し方になる
     const upstream = await fetch("https://overpass-api.de/api/interpreter", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        // ブラウザが自動で付けてくれるヘッダーを、サーバー間通信でも明示的に再現する。
+        // これらが無いと、Overpass側が不審なリクエストとして406で拒否することがある。
+        Accept: "*/*",
+        "User-Agent": "Mozilla/5.0 (compatible; spot-app/1.0)",
+      },
       body: `data=${encodeURIComponent(query)}`,
     });
 
