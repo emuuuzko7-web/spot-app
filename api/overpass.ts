@@ -11,13 +11,17 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    // "data=" を付けた形式(application/x-www-form-urlencoded)で送ると、
+    // Overpass API公式のドキュメントで案内されている標準的な呼び出し方になる
     const upstream = await fetch("https://overpass-api.de/api/interpreter", {
       method: "POST",
-      body: query,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `data=${encodeURIComponent(query)}`,
     });
 
     if (!upstream.ok) {
-      res.status(upstream.status).json({ error: `Overpass returned ${upstream.status}` });
+      const text = await upstream.text();
+      res.status(upstream.status).json({ error: `Overpass returned ${upstream.status}: ${text.slice(0, 200)}` });
       return;
     }
 
