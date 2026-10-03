@@ -1,3 +1,5 @@
+import { queryOverpass } from "./overpass";
+
 export type AddressCandidate = { label: string; lat: number; lng: number };
 
 function escapeForRegex(text: string): string {
@@ -19,8 +21,7 @@ async function searchFacilities(name: string): Promise<AddressCandidate[]> {
   `;
 
   try {
-    const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: query });
-    const data = await res.json();
+    const data = await queryOverpass(query);
 
     return (data.elements ?? [])
       .map((el: any) => {

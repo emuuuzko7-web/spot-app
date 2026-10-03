@@ -13,7 +13,7 @@ import { SpotMap } from "./SpotMap";
 import "leaflet/dist/leaflet.css";
 import "./App.css";
 import { PickLocationMap } from "./PickLocationMap";
-
+import { queryOverpass } from "./overpass";
 
 type LocationState =
   | { status: "idle" }
@@ -140,13 +140,12 @@ function App() {
 
   const purposes = [
     { key: "study", label: "📚 勉強したい" },
-    { key: "work", label: "💻 作業したい" },
     { key: "break", label: "☕ 休憩したい" },
     { key: "hangout", label: "🧑‍🤝‍🧑 友達と過ごしたい" },
     { key: "kill_time", label: "🕐 時間をつぶしたい" },
   ];
 
-  const isStudyMode = selectedPurpose === "study" || selectedPurpose === "work";
+  const isStudyMode = selectedPurpose === "study" ;
 
   const filteredSpots = useMemo(() => {
     return spots.filter((spot) => {
@@ -319,11 +318,7 @@ function App() {
     `;
 
     try {
-      const [overpassRes, userSpotsRaw] = await Promise.all([
-        fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: query }),
-        fetchUserSpots(),
-      ]);
-      const data = await overpassRes.json();
+      const [data, userSpotsRaw] = await Promise.all([queryOverpass(query), fetchUserSpots()]);
 
       const converted: Spot[] = data.elements
         .filter((el: any) => el.tags?.name)
@@ -368,6 +363,7 @@ function App() {
       setSpots([...curated, ...dedupedOsmResults]);
     } catch (e) {
       console.error(e);
+      alert("検索中にサーバーが混み合っているようです。少し待ってから、もう一度お試しください。");
     } finally {
       setIsSearching(false);
     }

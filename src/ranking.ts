@@ -18,7 +18,6 @@ export function scoreSpot(spot: Spot, remainingMinutes: number, isStudyMode: boo
     return dist * 0.2 + wifi + power;
   }
 
-  // 大分市公式データ等、noteがある(=確定情報がある)スポットは少し優先する
   const trustBonus = spot.note ? 10 : 0;
   return dist + trustBonus;
 }
