@@ -6,9 +6,13 @@ const OVERPASS_ENDPOINTS = [
 
 const TIMEOUT_MS = 15000;
 
-async function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = TIMEOUT_MS
+): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
@@ -41,15 +45,18 @@ async function queryOverpassDirect(query: string): Promise<any> {
 // 経由して問い合わせる。ブラウザからは常に同じドメインへの通信になるため、
 // CORSの制約自体が発生しなくなる。
 async function queryOverpassViaProxy(query: string): Promise<any> {
-  const res = await fetchWithTimeout("/api/overpass", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
-  });
+  const res = await fetchWithTimeout(
+    "/api/overpass",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    },
+    30000
+  );
 
   if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new Error(`プロキシ経由の検索に失敗しました(${res.status}): ${body?.error ?? "詳細不明"}`);
+    throw new Error(`プロキシ経由の検索に失敗しました(${res.status})`);
   }
   return res.json();
 }
