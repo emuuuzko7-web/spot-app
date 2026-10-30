@@ -1,12 +1,13 @@
 export const config = { runtime: "edge" };
 
+// 3) サーバーを1つ足す(利用条件は公式で要確認)
 const OVERPASS_ENDPOINTS = [
   "https://overpass.kumi.systems/api/interpreter",
   "https://overpass-api.de/api/interpreter",
   "https://lz4.overpass-api.de/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
 ];
-
-const PER_REQUEST_TIMEOUT_MS = 8000;
+const PER_REQUEST_TIMEOUT_MS = 20000;
 
 async function fetchOne(endpoint: string, query: string): Promise<any> {
   const controller = new AbortController();
@@ -15,10 +16,11 @@ async function fetchOne(endpoint: string, query: string): Promise<any> {
   try {
     const res = await fetch(endpoint, {
       method: "POST",
+      // 2) headers の User-Agent を差し替える(Mozilla のふりをやめる)
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "*/*",
-        "User-Agent": "Mozilla/5.0 (compatible; spot-app/1.0)",
+        Accept: "application/json",
+        "User-Agent": "spot-app/1.0 (+https://github.com/emuuuzko7-web/spot-app)",
       },
       body: `data=${encodeURIComponent(query)}`,
       signal: controller.signal,
