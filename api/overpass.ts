@@ -1,5 +1,3 @@
-// Edge Runtimeで実行する(通常のサーバー関数とは異なるネットワーク経路を使うため、
-// Overpass側のIPブロックを回避できる可能性がある)
 export const config = { runtime: "edge" };
 
 const OVERPASS_ENDPOINTS = [
@@ -26,8 +24,15 @@ async function fetchOne(endpoint: string, query: string): Promise<any> {
       signal: controller.signal,
     });
 
-    if (!res.ok) throw new Error(`${endpoint} returned ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${endpoint} returned ${res.status}: ${text.slice(0, 200)}`);
+    }
     return await res.json();
+  } catch (e: any) {
+    // タイムアウトや接続失敗も、どのサーバーかが分かるようにする
+    if (e?.message?.startsWith(endpoint)) throw e;
+    throw new Error(`${endpoint} failed: ${e?.name ?? ""} ${e?.message ?? e}`);
   } finally {
     clearTimeout(timer);
   }
@@ -50,9 +55,13 @@ export default async function handler(req: Request): Promise<Response> {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: "すべてのOverpassサーバーへの接続に失敗しました" }), {
-      status: 502,
-    });
+  } catch (e: any) {
+    const details = Array.isArray(e?.errors)
+      ? e.errors.map((x: any) => String(x?.message ?? x))
+      : [String(e?.message ?? e)];
+    return new Response(
+      JSON.stringify({ error: "すべてのOverpassサーバーへの接続に失敗しました", details }),
+      { status: 502, headers: { "Content-Type": "application/json" } }
+    );
   }
 }
