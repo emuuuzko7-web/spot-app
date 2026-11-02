@@ -1,20 +1,3 @@
-Claude
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Readme 改訂版 · MD
 # 今、どうする？ - Study & Hangout Spot Finder
  
 現在地・目的・残り時間から、今の自分に合う場所を提案するWebアプリ。
